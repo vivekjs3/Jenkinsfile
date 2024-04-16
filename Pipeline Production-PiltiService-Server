@@ -1,0 +1,162 @@
+pipeline {
+    agent any
+stages {
+stage('PitiSmart Online Check') {
+    steps {
+        script {
+            def response = null
+            def timeoutMillis = 10000 // 5 seconds
+
+            try {
+                response = timeout(time: timeoutMillis, unit: 'MILLISECONDS') {
+                    httpRequest(
+                        httpMode: 'GET',
+                        url: 'https://piltiservices.piltismart.com/'
+                    )
+                }
+            } catch (Exception e) {
+                error "URL did not load within 5 seconds."
+            }
+
+            if (response != null && response.status == 200) {
+                echo "HTTP Request code is 200. Stage 1 Done."
+            } else {
+                error "HTTP Request verification failed. Status code: ${response?.status}"
+            }
+        }
+    }
+}
+
+        stage('PitiSmart RAM Check') {
+            steps {
+                script {
+                    def availableMemoryPercentage
+
+                    try {
+                        def response = httpRequest(
+                            httpMode: 'GET',
+                            url: 'https://piltiservices.piltismart.com/ram'
+                        )
+                        def jsonResponse = new groovy.json.JsonSlurper().parseText(response.getContent())
+
+                        availableMemoryPercentage = jsonResponse.AvailableMemory_percentage as Double
+                    } catch (Exception e) {
+                        echo "Exception occurred while fetching or parsing data: ${e.message}"
+                        currentBuild.result = 'FAILURE' // Mark the build as failed
+                        emailext body: "Error occurred in PitiSmart RAM Check stage: ${e.message}",
+                                 subject: "Pipeline Failed",
+                                 to: "jsvivek3@email.com" // Enter the email address to send notifications
+                    }
+
+                    try {
+                        if (availableMemoryPercentage != null) {
+                            echo "Available Memory Percentage: ${availableMemoryPercentage}%"
+
+                            if (availableMemoryPercentage >= 25.0) {
+                                echo "Pass: Available Memory Percentage is greater than 25% 'Alright!!'.'Stage 2 Done'"
+                            } else {
+                                throw new Exception("Fail: Available Memory Percentage is less than 25%")
+                            }
+                        } else {
+                            echo "Failed to retrieve available memory percentage. Skipping further checks."
+                        }
+                    } catch (Exception e) {
+                        echo "Exception occurred while checking available memory percentage: ${e.message}"
+                        currentBuild.result = 'FAILURE' // Mark the build as failed
+                        emailext body: "Error occurred in PitiSmart RAM Check stage: ${e.message}",
+                                 subject: "Pipeline Failed",
+                                 to: "jsvivek3@email.com" // Enter the email address to send notifications
+                    }
+                }
+            }
+        }
+    
+
+
+stage('PitiSmart CPU Check') {
+    steps {
+        script {
+            try {
+                def response = httpRequest(
+                    httpMode: 'GET',
+                    url: 'https://piltiservices.piltismart.com/cpu'
+                )
+                def jsonResponse = new groovy.json.JsonSlurper().parseText(response.getContent())
+
+                def cpuLoad = jsonResponse.CPU_Load as Double
+
+                echo "CPU Load: ${cpuLoad}"
+
+                try {
+                    if (cpuLoad >= 80.0) {
+                        echo "FAIL: CPU Load is greater than or equal to 80_Percentage: ${cpuLoad}"
+                        currentBuild.result = 'FAILURE' // Mark the build as failed
+                        emailext body: "CPU Load is greater than or equal to 80%: ${cpuLoad}",
+                            subject: "Pipeline Failed",
+                            to: "your@email.com" // Enter the email address to send notifications
+                    } else {
+                        echo "PASS: CPU Load is lesser than 80% acceptable limit 'Alright!!'.'Stage 3 Done'"
+                    }
+                } catch (Exception e) {
+                    echo "Exception occurred in if-else block: ${e.message}"
+                    currentBuild.result = 'FAILURE' // Mark the build as failed
+                    emailext body: "Error occurred in if-else block: ${e.message}",
+                        subject: "Pipeline Failed",
+                        to: "jsvivek3@email.com" // Enter the email address to send notifications
+                }
+            } catch (Exception ex) {
+                echo "Exception occurred: ${ex.message}"
+                currentBuild.result = 'FAILURE' // Mark the build as failed
+                emailext body: "Error occurred in PitiSmart CPU Check stage: ${ex.message}",
+                    subject: "Pipeline Failed",
+                    to: "jsvivek3@email.com" // Enter the email address to send notifications
+            }
+        }
+    }
+}
+
+stage('PitiSmart Free Space Check') {
+    steps {
+        script {
+            try {
+                def response = httpRequest(
+                    httpMode: 'GET',
+                    url: 'https://piltiservices.piltismart.com/freediskspace'
+                )
+
+                def jsonResponse = new groovy.json.JsonSlurper().parseText(response.getContent())
+
+                def unallocatedSpacePercentage = jsonResponse.Unallocated_Space_Percentage as Double
+
+                echo "Unallocated Space: ${unallocatedSpacePercentage}"
+
+                try {
+                    if (unallocatedSpacePercentage < 30.0) {
+                        echo "FAIL : Unallocated Space is less than 30_Percentage: ${unallocatedSpacePercentage}"
+                        currentBuild.result = 'FAILURE' // Mark the build as failed
+                        emailext body: "Unallocated space is less than 30%: ${unallocatedSpacePercentage}",
+                            subject: "Pipeline Failed",
+                            to: "jsvivek3@email.com" // Enter the email address to send notifications
+                    } else {
+                        echo "PASS : Free Space is Greater Than 30% 'Alright!!' .'Stage 4 Done'"
+                    }
+                } catch (Exception e) {
+                    echo "Exception occurred in if-else block: ${e.message}"
+                    currentBuild.result = 'FAILURE' // Mark the build as failed
+                    emailext body: "Error occurred in if-else block: ${e.message}",
+                        subject: "Pipeline Failed",
+                        to: "jsvivek3@email.com" // Enter the email address to send notifications
+                }
+            } catch (Exception ex) {
+                echo "Exception occurred: ${ex.message}"
+                currentBuild.result = 'FAILURE' // Mark the build as failed
+                emailext body: "Error occurred in PitiSmart Free Space Check stage: ${ex.message}",
+                    subject: "Pipeline Failed",
+                    to: "jsvivek3@email.com" // Enter the email address to send notifications
+            }
+        }
+    }
+}
+}
+
+}
