@@ -1,0 +1,30 @@
+pipeline {
+    agent any
+stages {
+stage('PitiSmart Online Check') {
+    steps {
+        script {
+            def response = null
+            def timeoutMillis = 15000 // 5 seconds
+
+            try {
+                response = timeout(time: timeoutMillis, unit: 'MILLISECONDS') {
+                    httpRequest(
+                        httpMode: 'GET',
+                        url: 'https://pilticentral.piltismart.com/dolibarr/'
+                    )
+                }
+            } catch (Exception e) {
+                error "URL did not load within 5 seconds."
+            }
+
+            if (response != null && response.status == 200) {
+                echo "HTTP Request code is 200. Stage 1 Done."
+            } else {
+                error "HTTP Request verification failed. Status code: ${response?.status}"
+            }
+        }
+    }
+}
+}
+}
