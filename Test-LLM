@@ -11,7 +11,7 @@ stage('PitiSmart Online Check') {
                 response = timeout(time: timeoutMillis, unit: 'MILLISECONDS') {
                     httpRequest(
                         httpMode: 'GET',
-                        url: 'https://128.199.24.235:8001'
+                        url: 'http://128.199.24.235:8001'
                     )
                 }
             } catch (Exception e) {
