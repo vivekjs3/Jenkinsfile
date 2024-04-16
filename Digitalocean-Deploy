@@ -1,0 +1,103 @@
+pipeline {
+    agent any
+    
+    parameters {
+        choice(name: 'cloudProvider', choices: ['AWS', 'DigitalOcean', 'Oracle'], description: 'Select Cloud Provider')
+        string(name: 'username', defaultValue: '', description: 'Username')
+        string(name: 'host', defaultValue: '', description: 'Host IP')
+        string(name: 'keyFileCredentialId', defaultValue: '', description: 'Credential ID for Key File (For AWS and Oracle)')
+        string(name: 'password', defaultValue: '', description: 'Password (For DigitalOcean)')
+    }
+
+    stages {
+        stage('Download JAR files') {
+            steps {
+                script {
+                    // Download Jsch library
+                    sh 'wget https://repo1.maven.org/maven2/com/jcraft/jsch/0.1.55/jsch-0.1.55.jar -O jsch-0.1.55.jar'
+         
+                    // Add JSch JAR file to classpath
+                    def jschJarPath = "${env.WORKSPACE}/jsch-0.1.55.jar"
+                    sh "export CLASSPATH=${jschJarPath}:${CLASSPATH}"
+                }
+            }
+        }
+        
+        stage('Login to Cloud') {
+            steps {
+                script {
+                    def sshHost = params.host
+                    def sshUsername = params.username
+                    def keyFileCredentialId = params.keyFileCredentialId
+                    def sshPassword = params.password
+                    
+                    if (params.cloudProvider == 'AWS' || params.cloudProvider == 'Oracle') {
+                        // Use SSH key authentication for AWS or Oracle
+                        withCredentials([sshUserPrivateKey(credentialsId: keyFileCredentialId, keyFileVariable: 'KEY_FILE')]) {
+                            def sshLoginCommand = "ssh -i \$KEY_FILE ${sshUsername}@${sshHost}"
+                            sh sshLoginCommand
+                            // Store SSH connection details for subsequent stages
+                            env.SSH_CONNECTION = sshLoginCommand
+                        }
+                    } else if (params.cloudProvider == 'DigitalOcean') {
+                        // Use password authentication for DigitalOcean
+                        def sshLoginCommand = "sshpass -p '${sshPassword}' ssh ${sshUsername}@${sshHost}"
+                        sh sshLoginCommand
+                        // Store SSH connection details for subsequent stages
+                        env.SSH_CONNECTION = sshLoginCommand
+                    } else {
+                        error "Unsupported cloud provider: ${params.cloudProvider}"
+                    }
+                }
+            }
+        }
+        
+        stage('Install AWS CLI') {
+            when {
+                expression { params.cloudProvider == 'AWS' || params.cloudProvider == 'Oracle' || params.cloudProvider == 'DigitalOcean'}
+            }
+            steps {
+                script {
+                    // Ensure SSH connection details are available
+                    def sshCommand = env.SSH_CONNECTION ?: error("SSH connection not established")
+                    
+                    // Execute AWS CLI installation commands on the same cloud instance
+                    def awsInstallCommand = "sudo apt-get update && sudo apt-get install -y apt-transport-https curl unzip && " +
+                                            "curl 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o 'awscliv2.zip' && " +
+                                            "sudo unzip -o awscliv2.zip && sudo ./aws/install --update"
+                    sh "${sshCommand} '${awsInstallCommand}'"
+                }
+            }
+        }
+        
+        stage('Copy from S3') {
+            steps {
+                script {
+                    // Ensure SSH connection details are available
+                    def sshCommand = env.SSH_CONNECTION ?: error("SSH connection not established")
+                    
+                    // Execute AWS CLI command to copy files from S3 bucket on the same cloud instance
+                    def s3Bucket = "piltiservice-binary"
+                    def s3Key = "s-0.0.1-SNAPSHOT.jar"
+                    def localDirectory = "/root/spring12.jar"
+                    def awsCopyCommand = "aws s3 cp s3://${s3Bucket}/${s3Key} ${localDirectory}"
+                    sh "${sshCommand} '${awsCopyCommand}'"
+                }
+            }
+        }
+        
+        stage('Execute Command') {
+            steps {
+                script {
+                    // Ensure SSH connection details are available
+                    def sshCommand = env.SSH_CONNECTION ?: error("SSH connection not established")
+                    
+                    // Run the JAR file on the same cloud instance
+                    def jarFilePath = "/root/spring12.jar" // Assuming it's already copied
+                    def javaCommand = "nohup java -jar ${jarFilePath} --server.port=8888 > /root/logfile1.log 2>&1 &"
+                    sh "${sshCommand} '${javaCommand}'"
+                }
+            }
+        }
+    }
+}
