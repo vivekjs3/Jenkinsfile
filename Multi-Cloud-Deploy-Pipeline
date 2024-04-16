@@ -1,0 +1,175 @@
+pipeline {
+    agent any
+    
+    parameters {
+        choice(name: 'cloudProvider', choices: ['AWS', 'DigitalOcean'], description: 'Select Cloud Provider')
+        string(name: 'username', defaultValue: '', description: 'Username')
+        string(name: 'host', defaultValue: '', description: 'Host IP')
+        choice(name: 'CREDENTIAL_ID', choices: ['WEBSITE', 'MINIO', 'PILTICENTRAL', 'PILTISERVICE', 'SAAS', 'JENKINS', 'DEMO'], description: 'Select SSH private key credential')
+        string(name: 'password', defaultValue: '', description: 'Password (For DigitalOcean)')
+    }
+     
+    stages {
+        stage('Download JAR files') {
+            steps {
+                script {
+                    // Download Jsch library
+                    sh 'wget https://repo1.maven.org/maven2/com/jcraft/jsch/0.1.55/jsch-0.1.55.jar -O jsch-0.1.55.jar'
+         
+                    // Add JSch JAR file to classpath
+                    def jschJarPath = "${env.WORKSPACE}/jsch-0.1.55.jar"
+                    sh "export CLASSPATH=${jschJarPath}:${CLASSPATH}"
+                }
+            }
+        }
+                
+         
+        stage('Login to Cloud') {
+            steps {
+                script {
+                                       
+                     
+		            def sshUsername = params.username
+                    def sshHost = params.host
+		            def sshPassword = params.password
+                    def privateKeyString
+
+                    if (params.cloudProvider == 'AWS') {
+                   
+		   
+                    
+                    // Retrieve the selected credential based on the parameter
+                    switch (params.CREDENTIAL_ID) {
+                        case 'WEBSITE':
+                            privateKeyString = getPrivateKeyString('aws_website')
+                            break
+                        case 'MINIO':
+                            privateKeyString = getPrivateKeyString('aws_s3')
+                            break
+                        case 'PILTICENTRAL':
+                            privateKeyString = getPrivateKeyString('aws_pilticentral')
+                            break
+                        case 'PILTISERVICE':
+                            privateKeyString = getPrivateKeyString('aws_piltiservice')
+                            break
+                        case 'SAAS':
+                            privateKeyString = getPrivateKeyString('aws_mumbai')
+                            break
+                        case 'JENKINS':
+                            privateKeyString = getPrivateKeyString('aws_jenkins')
+                            break
+                        case 'DEMO':
+                            privateKeyString = getPrivateKeyString('aws_demo')
+                            break
+                        default:
+                            error("Invalid credential selection")
+                    }
+                // Use the private key in the SSH command
+                    sh "echo '${privateKeyString}' > ssh_key.pem"
+                    sh "chmod 600 ssh_key.pem"
+		            def sshLoginCommand = "ssh -i ssh_key.pem ${sshUsername}@${sshHost}"
+                    sh sshLoginCommand
+                    env.SSH_CONNECTION = sshLoginCommand
+                }
+                     else if (params.cloudProvider == 'DigitalOcean') {
+                        // Use password authentication for DigitalOcean
+                        def sshLoginCommand = "sshpass -p '${sshPassword}' ssh ${sshUsername}@${sshHost}"
+                        sh sshLoginCommand
+                        env.SSH_CONNECTION = sshLoginCommand
+                    } else {
+                        error "Unsupported cloud provider: ${params.cloudProvider}"
+                    }
+                }
+            }
+        }
+        
+        stage('Install AWS CLI') {
+            when {
+                expression { params.cloudProvider == 'AWS' || params.cloudProvider == 'DigitalOcean'}
+            }
+            steps {
+                script {
+                    // Ensure SSH connection details are available
+                    def sshCommand = env.SSH_CONNECTION ?: error("SSH connection not established")
+                    
+                    
+                    // Configure AWS CLI
+                    def awsConfigureCommand = "sudo aws configure set aws_access_key_id  && " +
+                                               "sudo aws configure set aws_secret_access_key  && " +
+                                               "sudo aws configure set default.region eu-west-1 "
+                                               
+                    // Execute AWS CLI installation commands on the same cloud instance
+                    def awsInstallCommand = "sudo apt-get update && sudo apt-get install -y apt-transport-https curl unzip && " +
+                                            "curl 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o 'awscliv2.zip' && " +
+                                            "sudo unzip -o awscliv2.zip && sudo ./aws/install --update && " + "${awsConfigureCommand}"
+                    sh "${sshCommand} '${awsInstallCommand}'"
+                }
+            }
+        }
+        
+        stage('Copy from S3') {
+            steps {
+                script {
+                    // Ensure SSH connection details are available
+                    def sshCommand = env.SSH_CONNECTION ?: error("SSH connection not established")
+                    
+                    // Execute AWS CLI command to copy files from S3 bucket on the same cloud instance
+                    def s3Bucket = "piltiservice-binary"
+                    def s3Key = "s-0.0.1-SNAPSHOT.jar"
+                    //def localDirectory = "/root/spring12.jar"
+                     def localDirectory
+
+                    if (params.cloudProvider == 'AWS') {
+                        localDirectory = "/home/ubuntu/spring12.jar"
+                    } else if (params.cloudProvider == 'DigitalOcean') {
+                        localDirectory = "/root/spring12.jar"
+                    } else {
+                        error "Unsupported cloud provider: ${params.cloudProvider}"
+                    }
+
+                    // def awsCopyCommand = "aws s3 cp s3://${s3Bucket}/${s3Key} ${localDirectory}"
+                    // sh "${sshCommand} '${awsCopyCommand}'"
+                    def awsCopyCommand = "aws s3 cp s3://${s3Bucket}/${s3Key} ${localDirectory}"
+                    sh "${sshCommand} '${awsCopyCommand}'"
+                }
+            }
+        }
+        
+        stage('Execute Command') {
+            steps {
+                script {
+                    // Ensure SSH connection details are available
+                    def sshCommand = env.SSH_CONNECTION ?: error("SSH connection not established")
+             def jarFilePath
+
+            if (params.cloudProvider == 'AWS') {
+                jarFilePath = "/home/ubuntu/spring12.jar"
+            } else if (params.cloudProvider == 'DigitalOcean') {
+                jarFilePath = "/root/spring12.jar"
+            } else {
+                error "Unsupported cloud provider: ${params.cloudProvider}"
+            }
+
+                    def javaCommand = "sudo nohup java -jar ${jarFilePath} --server.port=80 > /home/ubuntu/logfile1.log 2>&1 &"
+                    sh "${sshCommand} '${javaCommand}'"
+                }
+            }
+        }
+    }
+
+}
+def getPrivateKeyString(credentialId) {
+    def credentials = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
+        com.cloudbees.jenkins.plugins.sshcredentials.impl.BasicSSHUserPrivateKey.class,
+        Jenkins.instance,
+        null,
+        null
+    )
+
+    def credential = credentials.find { it.id == credentialId }
+    if (credential) {
+        return credential.getPrivateKey()
+    } else {
+        error("Credential not found for ID: ${credentialId}")
+    }
+}
