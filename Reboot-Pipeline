@@ -1,0 +1,116 @@
+pipeline {
+    agent any
+    
+    parameters {
+        choice(name: 'cloudProvider', choices: ['AWS', 'DigitalOcean'], description: 'Select Cloud Provider')
+        string(name: 'username', defaultValue: '', description: 'Username')
+        string(name: 'host', defaultValue: '', description: 'Host IP')
+        choice(name: 'CREDENTIAL_ID', choices: ['WEBSITE', 'MINIO', 'PILTICENTRAL', 'PILTISERVICE', 'SAAS', 'JENKINS', 'DEMO'], description: 'Select SSH private key credential')
+        string(name: 'password', defaultValue: '', description: 'Password (For DigitalOcean)')
+    }
+     
+    stages {
+        stage('Download JAR files') {
+            steps {
+                script {
+                    // Download Jsch library
+                    sh 'wget https://repo1.maven.org/maven2/com/jcraft/jsch/0.1.55/jsch-0.1.55.jar -O jsch-0.1.55.jar'
+         
+                    // Add JSch JAR file to classpath
+                    def jschJarPath = "${env.WORKSPACE}/jsch-0.1.55.jar"
+                    sh "export CLASSPATH=${jschJarPath}:${CLASSPATH}"
+                }
+            }
+        }
+                
+         
+        stage('Login to Cloud') {
+            steps {
+                script {
+                                       
+                     
+		            def sshUsername = params.username
+                    def sshHost = params.host
+		            def sshPassword = params.password
+                    def privateKeyString
+
+                    if (params.cloudProvider == 'AWS') {
+                   
+		   
+                    
+                    // Retrieve the selected credential based on the parameter
+                    switch (params.CREDENTIAL_ID) {
+                        case 'WEBSITE':
+                            privateKeyString = getPrivateKeyString('aws_website')
+                            break
+                        case 'MINIO':
+                            privateKeyString = getPrivateKeyString('aws_s3')
+                            break
+                        case 'PILTICENTRAL':
+                            privateKeyString = getPrivateKeyString('aws_pilticentral')
+                            break
+                        case 'PILTISERVICE':
+                            privateKeyString = getPrivateKeyString('aws_piltiservice')
+                            break
+                        case 'SAAS':
+                            privateKeyString = getPrivateKeyString('aws_mumbai')
+                            break
+                        case 'JENKINS':
+                            privateKeyString = getPrivateKeyString('aws_jenkins')
+                            break
+                        case 'DEMO':
+                            privateKeyString = getPrivateKeyString('aws_demo')
+                            break
+                        default:
+                            error("Invalid credential selection")
+                    }
+                // Use the private key in the SSH command
+                    sh "echo '${privateKeyString}' > ssh_key.pem"
+                    sh "chmod 600 ssh_key.pem"
+		            def sshLoginCommand = "ssh -i ssh_key.pem ${sshUsername}@${sshHost}"
+                    sh sshLoginCommand
+                    env.SSH_CONNECTION = sshLoginCommand
+                }
+                     else if (params.cloudProvider == 'DigitalOcean') {
+                        // Use password authentication for DigitalOcean
+                        def sshLoginCommand = "sshpass -p '${sshPassword}' ssh ${sshUsername}@${sshHost}"
+                        sh sshLoginCommand
+                        env.SSH_CONNECTION = sshLoginCommand
+                    } else {
+                        error "Unsupported cloud provider: ${params.cloudProvider}"
+                    }
+                }
+            }
+        }
+        
+      stage('Reboot the Server') {
+    when {
+        expression { params.cloudProvider == 'AWS' || params.cloudProvider == 'DigitalOcean'}
+    }
+    steps {
+        script {
+            // Ensure SSH connection details are available
+            def sshCommand = env.SSH_CONNECTION ?: error("SSH connection not established")
+            def reboot = "sudo reboot"
+           sh "${sshCommand} '${reboot}'"
+        }
+    }
+}
+
+    }  
+    }     
+def getPrivateKeyString(credentialId) {
+    def credentials = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
+        com.cloudbees.jenkins.plugins.sshcredentials.impl.BasicSSHUserPrivateKey.class,
+        Jenkins.instance,
+        null,
+        null
+    )
+
+    def credential = credentials.find { it.id == credentialId }
+    if (credential) {
+        return credential.getPrivateKey()
+    } else {
+        error("Credential not found for ID: ${credentialId}")
+    }
+}
