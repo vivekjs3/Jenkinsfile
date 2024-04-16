@@ -12,7 +12,7 @@ stage('PitiSmart Online Check') {
                 response = timeout(time: timeoutMillis, unit: 'MILLISECONDS') {
                     httpRequest(
                         httpMode: 'GET',
-                        url: 'http://13.201.201.8'
+                        url: 'https://jenkins.piltismart.com/login?from=%2F'
                     )
                 }
             } catch (Exception e) {
