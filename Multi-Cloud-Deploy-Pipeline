@@ -8,7 +8,15 @@ pipeline {
         choice(name: 'CREDENTIAL_ID', choices: ['WEBSITE', 'MINIO', 'PILTICENTRAL', 'PILTISERVICE', 'SAAS', 'JENKINS', 'DEMO'], description: 'Select SSH private key credential')
         string(name: 'password', defaultValue: '', description: 'Password (For DigitalOcean)')
     }
-     
+
+
+       environment {
+        // Retrieve AWS credentials
+        AWS_CREDENTIALS = credentials('test')
+        // Split the credential into access key ID and secret access key
+        AWS_ACCESS_KEY_ID = AWS_CREDENTIALS.split(':')[0].trim()
+        AWS_SECRET_ACCESS_KEY = AWS_CREDENTIALS.split(':')[1].trim()
+    }
     stages {
         stage('Download JAR files') {
             steps {
@@ -94,8 +102,8 @@ pipeline {
                     
                     
                     // Configure AWS CLI
-                    def awsConfigureCommand = "sudo aws configure set aws_access_key_id  && " +
-                                               "sudo aws configure set aws_secret_access_key  && " +
+                    def awsConfigureCommand = "sudo aws configure set aws_access_key_id ${AWS_ACCESS_KEY_ID} && " +
+                                               "sudo aws configure set aws_secret_access_key ${AWS_SECRET_ACCESS_KEY} && " +
                                                "sudo aws configure set default.region eu-west-1 "
                                                
                     // Execute AWS CLI installation commands on the same cloud instance
