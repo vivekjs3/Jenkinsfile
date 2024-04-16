@@ -1,0 +1,133 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+def authenticateAndGetToken(username, password) {
+    def response = null
+
+    try {
+        response =  httpRequest(
+                        httpMode: 'POST',
+                        contentType: 'APPLICATION_JSON',
+                        requestBody: "{\"username\":\"${username}\",\"password\":\"${password}\"}",
+                        url: 'https://tb-sit.piltismart.com/api/auth/login'
+                    )
+
+    } catch (Exception e) {
+        error "URL did not respond within 10 seconds."
+    }
+
+    if (response != null && response.status == 200) {
+        def jsonResponse = readJSON text: response.content
+        def authToken = jsonResponse.token
+        return authToken
+      
+    } else {
+        // Handle null response or non-200 status code
+        error "Authentication failed. Status code: ${response?.status}"
+        return null
+    }
+}
+
+def performPostWithToken(url, authToken, requestBody) {
+    def response = null
+
+    try {
+        response = httpRequest(
+            httpMode: 'POST',
+            contentType: 'APPLICATION_JSON',
+            requestBody: requestBody,
+            url: url,
+            customHeaders: [[name: 'X-Authorization', value: "Bearer ${authToken}"]]
+        )
+    } catch (Exception e) {
+        error "Error occurred while making the POST request: ${e.message}"
+    }
+
+    return response
+}
+
+def performGetWithToken(url, authToken) {
+    def response = null
+    def responseBody = null
+    try {
+        response = httpRequest(
+            httpMode: 'GET',
+            contentType: 'APPLICATION_JSON',
+            url: url,
+            customHeaders: [[name: 'X-Authorization', value: "Bearer ${authToken}"]]
+        )
+    } catch (Exception e) {
+         error "Error occurred while making the GET request: ${e.message}"
+        e.printStackTrace() // Print stack trace for debugging
+    }
+       if (response != null && response.status == 200) {
+           // Parse JSON response
+            def jsonSlurper = new JsonSlurper()
+            responseBody = jsonSlurper.parseText(response.content)
+           } else {
+            error "Received non-OK response: ${response.status}"
+        }
+// Serialize responseBody to JSON format
+ def jsonResponse = JsonOutput.toJson(responseBody)
+//  echo jsonResponse
+//   return jsonResponse
+   
+        def parsedJson = new groovy.json.JsonSlurper().parseText(jsonResponse)
+        println "${parsedJson}"
+        def temperatureArray = parsedJson.temperature
+        println "${temperatureArray}"
+        def temp = null
+        temperatureArray.each { entry ->
+       // def ts = entry.ts
+        def value = entry.value
+        if(value>temp)
+            temp=value
+           
+        println  "value: $value" }
+         println "Highest : $temp"
+        def count = temperatureArray.size()
+        println "Number of temperature values: $count"
+        return temperatureArray
+}
+
+pipeline {
+    agent any
+    stages {
+        stage('PitiSmart Authentication') {
+            steps {
+                script {
+                    def username = 'vv007acs@gmail.com'
+                    def password = 'Qwer@2002'
+
+                    def authToken = authenticateAndGetToken(username, password)
+
+                    if (authToken) {
+                        echo "Authentication Successful. Token: ${authToken}"
+
+                        // Call the POST method
+                        def postUrl = 'https://tb-sit.piltismart.com/api/plugins/telemetry/DEVICE/b4d11230-d54e-11ee-bfff-c7263be76df4/timeseries/CLIENT'
+                        def postRequestBody = '{"Test1": "Scripting"}'
+                        def postResponse = performPostWithToken(postUrl, authToken, postRequestBody)
+
+                        if (postResponse && postResponse.status == 200) {
+                           echo "${postRequestBody}"
+                        } else {
+                            error "POST request failed. Status code: ${postResponse?.status}"
+                        }
+
+                        // Call the GET method
+                        def getUrl = 'https://tb-sit.piltismart.com/api/plugins/telemetry/DEVICE/a985e2b0-e13a-11ed-9e7b-9f0d6179dad0/values/timeseries?keys=temperature&startTs=1708986736000&endTs=1709203160000'
+                        def getResponse = performGetWithToken(getUrl, authToken)
+
+                       if (getResponse != null) {
+                            echo "Sucessfull"
+                        } else {
+                            error "GET request failed. Status code: Temperature: ${temperature}"
+                        }
+                    } else {
+                        error "Authentication failed."
+                    }
+                }
+            }
+        }
+    }
+}
