@@ -153,7 +153,7 @@ pipeline {
             if (params.cloudProvider == 'AWS') {
                 jarFilePath = "/home/ubuntu/spring12.jar"
             } else if (params.cloudProvider == 'DigitalOcean') {
-                jarFilePath = "/root/spring12.jar"
+                jarFilePath = "/root/spring.jar"
             } else {
                 error "Unsupported cloud provider: ${params.cloudProvider}"
             }
