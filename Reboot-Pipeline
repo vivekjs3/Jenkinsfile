@@ -67,7 +67,7 @@ pipeline {
                 // Use the private key in the SSH command
                     sh "echo '${privateKeyString}' > ssh_key.pem"
                     sh "chmod 600 ssh_key.pem"
-		            def sshLoginCommand = "ssh -i ssh_key.pem ${sshUsername}@${sshHost}"
+		            def sshLoginCommand = "ssh -i -v 'ssh_key.pem' ${sshUsername}@${sshHost}"
                     sh sshLoginCommand
                     env.SSH_CONNECTION = sshLoginCommand
                 }
