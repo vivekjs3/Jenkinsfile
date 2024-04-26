@@ -74,7 +74,7 @@ pipeline {
                     }
                 // Use the private key in the SSH command
                     sh "echo '${privateKeyString}' > ssh_key.pem"
-                    sh "chmod 400 ssh_key.pem"
+                    sh "chmod 600 ssh_key.pem"
 		            def sshLoginCommand = "ssh -i ssh_key.pem ${sshUsername}@${sshHost}"
                     sh sshLoginCommand
                     env.SSH_CONNECTION = sshLoginCommand
@@ -124,11 +124,11 @@ pipeline {
                     // Execute AWS CLI command to copy files from S3 bucket on the same cloud instance
                     def s3Bucket = "piltiservice-binary"
                     def s3Key = "s-0.0.1-SNAPSHOT.jar"
-                    //def localDirectory = "/root/spring12.jar"
+                  
                      def localDirectory
 
                     if (params.cloudProvider == 'AWS') {
-                        localDirectory = "/home/ubuntu/spring12.jar"
+                        localDirectory = "~/spring12.jar"
                     } else if (params.cloudProvider == 'DigitalOcean') {
                         localDirectory = "/root/spring12.jar"
                     } else {
@@ -151,14 +151,14 @@ pipeline {
              def jarFilePath
 
             if (params.cloudProvider == 'AWS') {
-                jarFilePath = "/home/ubuntu/spring12.jar"
+                jarFilePath = "~/spring.jar"
             } else if (params.cloudProvider == 'DigitalOcean') {
-                jarFilePath = "/root/spring.jar"
+                jarFilePath = "~/spring.jar"
             } else {
                 error "Unsupported cloud provider: ${params.cloudProvider}"
             }
 
-                    def javaCommand = "sudo nohup java -jar ${jarFilePath} --server.port=80 > /home/ubuntu/logfile1.log 2>&1 &"
+                    def javaCommand = "sudo nohup java -jar ${jarFilePath} --server.port=80 > ~/logfile.log 2>&1 &"
                     sh "${sshCommand} '${javaCommand}'"
                 }
             }
