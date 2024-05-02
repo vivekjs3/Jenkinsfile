@@ -5,7 +5,7 @@ stage('PitiSmart Online Check') {
     steps {
         script {
             def response = null
-            def timeoutMillis = 15000 // 5 seconds
+            def timeoutMillis = 20000 // 5 seconds
 
             try {
                 response = timeout(time: timeoutMillis, unit: 'MILLISECONDS') {
